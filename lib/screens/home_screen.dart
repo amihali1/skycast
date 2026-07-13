@@ -227,6 +227,8 @@ class _HomeScreenState extends State<HomeScreen> {
             temp: _temp,
           ),
           const SizedBox(height: 24),
+          _NextHoursRainCard(minutely: forecast.minutely),
+          const SizedBox(height: 24),
           _HourlyStrip(hours: upcomingHours, temp: _temp),
           const SizedBox(height: 24),
           _DailyList(days: forecast.daily, temp: _temp),
@@ -281,6 +283,80 @@ class _CurrentPanel extends StatelessWidget {
           style: const TextStyle(color: Colors.white70, fontSize: 14),
         ),
       ],
+    );
+  }
+}
+
+class _NextHoursRainCard extends StatelessWidget {
+  const _NextHoursRainCard({required this.minutely});
+
+  final List<MinutelyPoint> minutely;
+
+  String _hourMinLabel(DateTime t) {
+    final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
+    final m = t.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final points = minutely
+        .where((p) => !p.time.isBefore(now.subtract(const Duration(minutes: 15))))
+        .take(8)
+        .toList();
+    if (points.isEmpty) return const SizedBox.shrink();
+
+    final maxPrecip =
+        points.map((p) => p.precipitationMm).reduce((a, b) => a > b ? a : b);
+    final anyRain = maxPrecip > 0.05;
+
+    return _GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Next 2 hours',
+              style: TextStyle(color: Colors.white70, fontSize: 13)),
+          const SizedBox(height: 10),
+          if (!anyRain)
+            const Text('No rain expected.',
+                style: TextStyle(color: Colors.white, fontSize: 15))
+          else
+            SizedBox(
+              height: 72,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (final p in points)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Container(
+                              height: 4 +
+                                  44 * (p.precipitationMm / maxPrecip),
+                              decoration: BoxDecoration(
+                                color: p.precipitationMm > 0.05
+                                    ? const Color(0xFFD6F0FF)
+                                    : Colors.white24,
+                                borderRadius: BorderRadius.circular(3),
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(_hourMinLabel(p.time),
+                                style: const TextStyle(
+                                    color: Colors.white54, fontSize: 10)),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

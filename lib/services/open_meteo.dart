@@ -36,6 +36,8 @@ class OpenMeteoService {
       'current':
           'temperature_2m,apparent_temperature,relative_humidity_2m,is_day,weather_code,wind_speed_10m',
       'hourly': 'temperature_2m,weather_code,precipitation_probability',
+      'minutely_15': 'precipitation',
+      'forecast_minutely_15': '8',
       'daily':
           'weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max',
       'timezone': 'auto',

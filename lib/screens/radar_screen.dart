@@ -1,17 +1,16 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:http/http.dart' as http;
 import 'package:latlong2/latlong.dart';
 
 import '../models/forecast.dart';
 
 /// Animated precipitation radar over an OpenStreetMap base layer.
 ///
-/// Radar tiles come from RainViewer's free public API: past ~2 hours of
-/// observed radar plus a short nowcast (~30 min forecast). No API key.
+/// Radar tiles are NOAA NEXRAD composites served by the Iowa Environmental
+/// Mesonet (IEM) tile cache — free, no API key. Coverage is US only.
+/// Frames span the last ~50 minutes in 5-minute steps.
 class RadarScreen extends StatefulWidget {
   const RadarScreen({super.key, required this.place});
 
@@ -22,26 +21,33 @@ class RadarScreen extends StatefulWidget {
 }
 
 class _RadarFrame {
-  const _RadarFrame({required this.time, required this.path, required this.isForecast});
+  const _RadarFrame({required this.minutesAgo, required this.layer});
 
-  final DateTime time;
-  final String path;
-  final bool isForecast;
+  final int minutesAgo;
+  final String layer;
+
+  String get urlTemplate =>
+      'https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/$layer/{z}/{x}/{y}.png';
 }
 
+const _frames = [
+  _RadarFrame(minutesAgo: 50, layer: 'nexrad-n0q-900913-m50m'),
+  _RadarFrame(minutesAgo: 45, layer: 'nexrad-n0q-900913-m45m'),
+  _RadarFrame(minutesAgo: 40, layer: 'nexrad-n0q-900913-m40m'),
+  _RadarFrame(minutesAgo: 35, layer: 'nexrad-n0q-900913-m35m'),
+  _RadarFrame(minutesAgo: 30, layer: 'nexrad-n0q-900913-m30m'),
+  _RadarFrame(minutesAgo: 25, layer: 'nexrad-n0q-900913-m25m'),
+  _RadarFrame(minutesAgo: 20, layer: 'nexrad-n0q-900913-m20m'),
+  _RadarFrame(minutesAgo: 15, layer: 'nexrad-n0q-900913-m15m'),
+  _RadarFrame(minutesAgo: 10, layer: 'nexrad-n0q-900913-m10m'),
+  _RadarFrame(minutesAgo: 5, layer: 'nexrad-n0q-900913-m05m'),
+  _RadarFrame(minutesAgo: 0, layer: 'nexrad-n0q-900913'),
+];
+
 class _RadarScreenState extends State<RadarScreen> {
-  String? _host;
-  List<_RadarFrame> _frames = const [];
-  int _index = 0;
-  String? _error;
+  int _index = _frames.length - 1;
   bool _playing = false;
   Timer? _playTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadFrames();
-  }
 
   @override
   void dispose() {
@@ -49,145 +55,104 @@ class _RadarScreenState extends State<RadarScreen> {
     super.dispose();
   }
 
-  Future<void> _loadFrames() async {
-    setState(() => _error = null);
-    try {
-      final response = await http
-          .get(Uri.parse('https://api.rainviewer.com/public/weather-maps.json'));
-      if (response.statusCode != 200) {
-        throw Exception('RainViewer request failed (${response.statusCode})');
-      }
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
-      final host = json['host'] as String;
-      final radar = json['radar'] as Map<String, dynamic>;
-
-      List<_RadarFrame> parse(String key, bool isForecast) =>
-          ((radar[key] as List?) ?? const [])
-              .map((f) => _RadarFrame(
-                    time: DateTime.fromMillisecondsSinceEpoch(
-                        (f['time'] as num).toInt() * 1000),
-                    path: f['path'] as String,
-                    isForecast: isForecast,
-                  ))
-              .toList();
-
-      final frames = [...parse('past', false), ...parse('nowcast', true)];
-      if (frames.isEmpty) throw Exception('No radar frames available');
-
-      if (!mounted) return;
-      setState(() {
-        _host = host;
-        _frames = frames;
-        // Start on the most recent observed frame.
-        _index = frames.lastIndexWhere((f) => !f.isForecast).clamp(0, frames.length - 1);
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.toString());
-    }
-  }
-
   void _togglePlay() {
     setState(() => _playing = !_playing);
     _playTimer?.cancel();
     if (_playing) {
-      _playTimer = Timer.periodic(const Duration(milliseconds: 600), (_) {
+      _playTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
         if (!mounted) return;
         setState(() => _index = (_index + 1) % _frames.length);
       });
     }
   }
 
-  String _frameLabel(_RadarFrame frame) {
-    final t = frame.time.toLocal();
-    final h = t.hour % 12 == 0 ? 12 : t.hour % 12;
-    final m = t.minute.toString().padLeft(2, '0');
-    final ampm = t.hour < 12 ? 'AM' : 'PM';
-    return '$h:$m $ampm${frame.isForecast ? '  (forecast)' : ''}';
-  }
+  String _frameLabel(_RadarFrame frame) =>
+      frame.minutesAgo == 0 ? 'Now' : '${frame.minutesAgo} min ago';
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text('Radar — ${widget.place.name}')),
-      body: _error != null
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(_error!),
-                  const SizedBox(height: 12),
-                  FilledButton(onPressed: _loadFrames, child: const Text('Retry')),
-                ],
-              ),
-            )
-          : _frames.isEmpty
-              ? const Center(child: CircularProgressIndicator())
-              : Column(
+      body: Column(
+        children: [
+          Expanded(
+            child: Stack(
+              children: [
+                FlutterMap(
+                  options: MapOptions(
+                    initialCenter:
+                        LatLng(widget.place.latitude, widget.place.longitude),
+                    initialZoom: 7,
+                  ),
                   children: [
-                    Expanded(
-                      child: FlutterMap(
-                        options: MapOptions(
-                          initialCenter: LatLng(
-                              widget.place.latitude, widget.place.longitude),
-                          initialZoom: 7,
-                        ),
-                        children: [
-                          TileLayer(
-                            urlTemplate:
-                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                            userAgentPackageName: 'dev.andym.skycast',
-                          ),
-                          Opacity(
-                            opacity: 0.7,
-                            child: TileLayer(
-                              urlTemplate:
-                                  '$_host${_frames[_index].path}/256/{z}/{x}/{y}/2/1_1.png',
-                              userAgentPackageName: 'dev.andym.skycast',
-                            ),
-                          ),
-                          const SimpleAttributionWidget(
-                            source: Text('OpenStreetMap · RainViewer'),
-                          ),
-                        ],
-                      ),
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'dev.andym.skycast',
                     ),
-                    SafeArea(
-                      top: false,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Row(
-                          children: [
-                            IconButton(
-                              icon: Icon(
-                                  _playing ? Icons.pause : Icons.play_arrow),
-                              onPressed: _togglePlay,
-                              tooltip: _playing ? 'Pause' : 'Play',
-                            ),
-                            Expanded(
-                              child: Slider(
-                                value: _index.toDouble(),
-                                min: 0,
-                                max: (_frames.length - 1).toDouble(),
-                                divisions: _frames.length - 1,
-                                onChanged: (v) =>
-                                    setState(() => _index = v.round()),
-                              ),
-                            ),
-                            SizedBox(
-                              width: 110,
-                              child: Text(
-                                _frameLabel(_frames[_index]),
-                                textAlign: TextAlign.right,
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ],
+                    // Stack all frames but only show the active one, so
+                    // scrubbing/playing doesn't flash while tiles load.
+                    for (final (i, frame) in _frames.indexed)
+                      Opacity(
+                        opacity: i == _index ? 0.7 : 0.0,
+                        child: TileLayer(
+                          urlTemplate: frame.urlTemplate,
+                          userAgentPackageName: 'dev.andym.skycast',
                         ),
                       ),
+                    const SimpleAttributionWidget(
+                      source: Text('OpenStreetMap · NEXRAD/IEM'),
                     ),
                   ],
                 ),
+                Positioned(
+                  top: 8,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Text(
+                        _frameLabel(_frames[_index]),
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                children: [
+                  IconButton(
+                    icon: Icon(_playing ? Icons.pause : Icons.play_arrow),
+                    onPressed: _togglePlay,
+                    tooltip: _playing ? 'Pause' : 'Play',
+                  ),
+                  Expanded(
+                    child: Slider(
+                      value: _index.toDouble(),
+                      min: 0,
+                      max: (_frames.length - 1).toDouble(),
+                      divisions: _frames.length - 1,
+                      onChanged: (v) => setState(() => _index = v.round()),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

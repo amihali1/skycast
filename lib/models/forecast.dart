@@ -78,6 +78,13 @@ class HourlyPoint {
   final int precipProbability;
 }
 
+class MinutelyPoint {
+  const MinutelyPoint({required this.time, required this.precipitationMm});
+
+  final DateTime time;
+  final double precipitationMm;
+}
+
 class DailyPoint {
   const DailyPoint({
     required this.date,
@@ -99,16 +106,26 @@ class Forecast {
     required this.current,
     required this.hourly,
     required this.daily,
+    required this.minutely,
   });
 
   final CurrentWeather current;
   final List<HourlyPoint> hourly;
   final List<DailyPoint> daily;
 
+  /// 15-minute precipitation forecast; empty where the region lacks
+  /// high-resolution model coverage.
+  final List<MinutelyPoint> minutely;
+
   factory Forecast.fromJson(Map<String, dynamic> json) {
     final current = json['current'] as Map<String, dynamic>;
     final hourly = json['hourly'] as Map<String, dynamic>;
     final daily = json['daily'] as Map<String, dynamic>;
+    final minutely = json['minutely_15'] as Map<String, dynamic>?;
+
+    final minutelyTimes = (minutely?['time'] as List?)?.cast<String>() ?? const [];
+    final minutelyPrecip =
+        (minutely?['precipitation'] as List?)?.cast<num?>() ?? const [];
 
     final hourlyTimes = (hourly['time'] as List).cast<String>();
     final hourlyTemps = (hourly['temperature_2m'] as List).cast<num>();
@@ -137,6 +154,13 @@ class Forecast {
             temperatureC: hourlyTemps[i].toDouble(),
             weatherCode: hourlyCodes[i].toInt(),
             precipProbability: hourlyPrecip?[i]?.toInt() ?? 0,
+          ),
+      ],
+      minutely: [
+        for (var i = 0; i < minutelyTimes.length; i++)
+          MinutelyPoint(
+            time: DateTime.parse(minutelyTimes[i]),
+            precipitationMm: minutelyPrecip[i]?.toDouble() ?? 0,
           ),
       ],
       daily: [
