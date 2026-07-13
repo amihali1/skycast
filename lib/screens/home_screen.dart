@@ -6,6 +6,7 @@ import 'dart:convert';
 import '../models/forecast.dart';
 import '../services/open_meteo.dart';
 import '../wmo.dart';
+import 'radar_screen.dart';
 
 const _defaultPlace = Place(
   name: 'New York',
@@ -156,6 +157,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 _useFahrenheit ? '°F' : '°C',
                 style: const TextStyle(color: Colors.white, fontSize: 18),
               ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.radar),
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                    builder: (_) => RadarScreen(place: _place)),
+              ),
+              tooltip: 'Radar',
             ),
             IconButton(
               icon: _locating
@@ -315,7 +324,9 @@ class _HourlyStrip extends StatelessWidget {
                 if (h.precipProbability > 0)
                   Text('${h.precipProbability}%',
                       style: const TextStyle(
-                          color: Colors.lightBlueAccent, fontSize: 11)),
+                          color: Color(0xFFD6F0FF),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600)),
               ],
             );
           },
@@ -361,7 +372,9 @@ class _DailyList extends StatelessWidget {
                     child: d.precipProbability > 0
                         ? Text('${d.precipProbability}%',
                             style: const TextStyle(
-                                color: Colors.lightBlueAccent, fontSize: 12))
+                                color: Color(0xFFD6F0FF),
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600))
                         : const SizedBox.shrink(),
                   ),
                   const Spacer(),
