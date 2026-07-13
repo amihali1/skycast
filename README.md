@@ -1,17 +1,35 @@
-# skycast
+# Skycast
 
-A new Flutter project.
+An ad-free weather app. One Flutter codebase, two targets: Android and web.
 
-## Getting Started
+Built because every mainstream weather app is now an ad delivery vehicle with a
+forecast attached. Skycast has no ads, no trackers, no accounts, and no API keys.
 
-This project is a starting point for a Flutter application.
+## Features
 
-A few resources to get you started if this is your first Flutter project:
+- Current conditions with feels-like, humidity, and wind
+- 24-hour forecast strip with precipitation probability
+- 8-day daily forecast
+- City search (Open-Meteo geocoding)
+- °F / °C toggle, remembered between sessions
+- Weather-reactive background gradients (day/night aware)
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Data
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+All weather data comes from [Open-Meteo](https://open-meteo.com/) — a free,
+open-source weather API that requires no key and serves no ads.
+
+## Development
+
+```sh
+flutter run -d chrome     # run in browser
+flutter run -d android    # run on device/emulator (needs Android SDK)
+flutter test              # widget tests
+```
+
+## Builds
+
+```sh
+flutter build web --release   # output in build/web — deployable to any static host
+flutter build apk --release   # Android APK (needs Android SDK)
+```
