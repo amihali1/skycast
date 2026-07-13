@@ -5,6 +5,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../models/forecast.dart';
+import '../services/nowcast.dart';
 
 /// Animated precipitation radar over an OpenStreetMap base layer.
 ///
@@ -49,6 +50,32 @@ class _RadarScreenState extends State<RadarScreen> {
   bool _playing = false;
   Timer? _playTimer;
 
+  final _nowcastService = NowcastService();
+  NowcastResult? _nowcast;
+  bool _computingNowcast = true;
+
+  int get _timelineLength => _frames.length + (_nowcast?.frames.length ?? 0);
+
+  @override
+  void initState() {
+    super.initState();
+    _computeNowcast();
+  }
+
+  Future<void> _computeNowcast() async {
+    setState(() => _computingNowcast = true);
+    try {
+      final result = await _nowcastService.computeNowcast(
+          widget.place.latitude, widget.place.longitude);
+      if (!mounted) return;
+      setState(() => _nowcast = result);
+    } catch (_) {
+      // Nowcast is best-effort; observed radar still works without it.
+    } finally {
+      if (mounted) setState(() => _computingNowcast = false);
+    }
+  }
+
   @override
   void dispose() {
     _playTimer?.cancel();
@@ -61,13 +88,19 @@ class _RadarScreenState extends State<RadarScreen> {
     if (_playing) {
       _playTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
         if (!mounted) return;
-        setState(() => _index = (_index + 1) % _frames.length);
+        setState(() => _index = (_index + 1) % _timelineLength);
       });
     }
   }
 
-  String _frameLabel(_RadarFrame frame) =>
-      frame.minutesAgo == 0 ? 'Now' : '${frame.minutesAgo} min ago';
+  String _labelAt(int index) {
+    if (index < _frames.length) {
+      final frame = _frames[index];
+      return frame.minutesAgo == 0 ? 'Now' : '${frame.minutesAgo} min ago';
+    }
+    final lead = _nowcast!.frames[index - _frames.length].leadMinutes;
+    return '+$lead min (est)';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -100,6 +133,22 @@ class _RadarScreenState extends State<RadarScreen> {
                           userAgentPackageName: 'dev.andym.skycast',
                         ),
                       ),
+                    if (_nowcast != null && _index >= _frames.length)
+                      Opacity(
+                        opacity: 0.7,
+                        child: OverlayImageLayer(
+                          overlayImages: [
+                            OverlayImage(
+                              bounds: LatLngBounds(
+                                LatLng(_nowcast!.south, _nowcast!.west),
+                                LatLng(_nowcast!.north, _nowcast!.east),
+                              ),
+                              imageProvider: MemoryImage(_nowcast!
+                                  .frames[_index - _frames.length].png),
+                            ),
+                          ],
+                        ),
+                      ),
                     const SimpleAttributionWidget(
                       source: Text('OpenStreetMap · NEXRAD/IEM'),
                     ),
@@ -118,8 +167,12 @@ class _RadarScreenState extends State<RadarScreen> {
                         borderRadius: BorderRadius.circular(16),
                       ),
                       child: Text(
-                        _frameLabel(_frames[_index]),
-                        style: const TextStyle(color: Colors.white),
+                        _labelAt(_index),
+                        style: TextStyle(
+                          color: _index >= _frames.length
+                              ? Colors.amberAccent
+                              : Colors.white,
+                        ),
                       ),
                     ),
                   ),
@@ -142,11 +195,20 @@ class _RadarScreenState extends State<RadarScreen> {
                     child: Slider(
                       value: _index.toDouble(),
                       min: 0,
-                      max: (_frames.length - 1).toDouble(),
-                      divisions: _frames.length - 1,
+                      max: (_timelineLength - 1).toDouble(),
+                      divisions: _timelineLength - 1,
                       onChanged: (v) => setState(() => _index = v.round()),
                     ),
                   ),
+                  if (_computingNowcast)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 12),
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
                 ],
               ),
             ),
