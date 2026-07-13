@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
@@ -28,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Forecast? _forecast;
   String? _error;
   bool _useFahrenheit = true;
+  bool _locating = false;
 
   @override
   void initState() {
@@ -80,6 +82,41 @@ class _HomeScreenState extends State<HomeScreen> {
     return '${value.round()}°';
   }
 
+  Future<void> _useMyLocation() async {
+    setState(() => _locating = true);
+    try {
+      if (!await Geolocator.isLocationServiceEnabled()) {
+        throw 'Location services are disabled on this device.';
+      }
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        throw 'Location permission denied. Use search instead.';
+      }
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.low,
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+      await _selectPlace(Place(
+        name: 'My Location',
+        latitude: position.latitude,
+        longitude: position.longitude,
+      ));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    } finally {
+      if (mounted) setState(() => _locating = false);
+    }
+  }
+
   Future<void> _openSearch() async {
     final selected = await showSearch<Place?>(
       context: context,
@@ -119,6 +156,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 _useFahrenheit ? '°F' : '°C',
                 style: const TextStyle(color: Colors.white, fontSize: 18),
               ),
+            ),
+            IconButton(
+              icon: _locating
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Icon(Icons.my_location),
+              onPressed: _locating ? null : _useMyLocation,
+              tooltip: 'Use my location',
             ),
             IconButton(
               icon: const Icon(Icons.search),
