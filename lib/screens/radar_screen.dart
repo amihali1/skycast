@@ -54,6 +54,7 @@ class _RadarScreenState extends State<RadarScreen> {
   final _nowcastService = NowcastService();
   NowcastResult? _nowcast;
   bool _computingNowcast = true;
+  String? _nowcastError;
 
   int get _timelineLength => _frames.length + (_nowcast?.frames.length ?? 0);
 
@@ -70,8 +71,11 @@ class _RadarScreenState extends State<RadarScreen> {
           widget.place.latitude, widget.place.longitude);
       if (!mounted) return;
       setState(() => _nowcast = result);
-    } catch (_) {
-      // Nowcast is best-effort; observed radar still works without it.
+    } catch (e) {
+      // Nowcast is best-effort; observed radar still works without it —
+      // but say so instead of failing silently.
+      debugPrint('Nowcast failed: $e');
+      if (mounted) setState(() => _nowcastError = e.toString());
     } finally {
       if (mounted) setState(() => _computingNowcast = false);
     }
@@ -244,6 +248,18 @@ class _RadarScreenState extends State<RadarScreen> {
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  else if (_nowcastError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: Tooltip(
+                        message: 'Nowcast failed: $_nowcastError',
+                        child: IconButton(
+                          icon: const Icon(Icons.warning_amber,
+                              color: Colors.amber, size: 20),
+                          onPressed: _computeNowcast,
+                        ),
                       ),
                     ),
                 ],
