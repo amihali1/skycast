@@ -46,6 +46,7 @@ const _frames = [
 ];
 
 class _RadarScreenState extends State<RadarScreen> {
+  final _mapController = MapController();
   int _index = _frames.length - 1;
   bool _playing = false;
   Timer? _playTimer;
@@ -79,7 +80,13 @@ class _RadarScreenState extends State<RadarScreen> {
   @override
   void dispose() {
     _playTimer?.cancel();
+    _mapController.dispose();
     super.dispose();
+  }
+
+  void _zoomBy(double delta) {
+    final camera = _mapController.camera;
+    _mapController.move(camera.center, camera.zoom + delta);
   }
 
   void _togglePlay() {
@@ -112,10 +119,16 @@ class _RadarScreenState extends State<RadarScreen> {
             child: Stack(
               children: [
                 FlutterMap(
+                  mapController: _mapController,
                   options: MapOptions(
                     initialCenter:
                         LatLng(widget.place.latitude, widget.place.longitude),
                     initialZoom: 7,
+                    minZoom: 4,
+                    maxZoom: 12,
+                    interactionOptions: const InteractionOptions(
+                      flags: InteractiveFlag.all & ~InteractiveFlag.rotate,
+                    ),
                   ),
                   children: [
                     TileLayer(
@@ -131,6 +144,9 @@ class _RadarScreenState extends State<RadarScreen> {
                         child: TileLayer(
                           urlTemplate: frame.urlTemplate,
                           userAgentPackageName: 'dev.andym.skycast',
+                          // IEM stops serving radar tiles past this zoom;
+                          // scale them up instead of dropping the layer.
+                          maxNativeZoom: 10,
                         ),
                       ),
                     if (_nowcast != null && _index >= _frames.length)
@@ -153,6 +169,27 @@ class _RadarScreenState extends State<RadarScreen> {
                       source: Text('OpenStreetMap · NEXRAD/IEM'),
                     ),
                   ],
+                ),
+                Positioned(
+                  right: 12,
+                  bottom: 24,
+                  child: Column(
+                    children: [
+                      FloatingActionButton.small(
+                        heroTag: 'radar-zoom-in',
+                        onPressed: () => _zoomBy(1),
+                        tooltip: 'Zoom in',
+                        child: const Icon(Icons.add),
+                      ),
+                      const SizedBox(height: 8),
+                      FloatingActionButton.small(
+                        heroTag: 'radar-zoom-out',
+                        onPressed: () => _zoomBy(-1),
+                        tooltip: 'Zoom out',
+                        child: const Icon(Icons.remove),
+                      ),
+                    ],
+                  ),
                 ),
                 Positioned(
                   top: 8,
