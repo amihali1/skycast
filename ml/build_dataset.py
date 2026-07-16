@@ -43,6 +43,13 @@ MIN_PRECIP_FRACTION = 0.01
 
 
 def build_time(t0: datetime, args, rng: random.Random) -> int:
+    # Resume support: a crashed run can be relaunched without recomputing
+    # sample times that already produced patches.
+    out_dir = Path(args.out)
+    if list(out_dir.glob(f"s_{t0:%Y%m%d%H%M}_*.npz")):
+        print(f"{t0:%Y-%m-%d %H:%M}: already built, skipped")
+        return 0
+
     cache = Path(args.cache)
     times = [t0 - timedelta(minutes=m) for m in common.FRAME_OFFSETS_MIN] + [
         t0 + timedelta(minutes=m) for m in common.LEADS_MIN
@@ -53,7 +60,6 @@ def build_time(t0: datetime, args, rng: random.Random) -> int:
         return 0
 
     images = [Image.open(p) for p in paths]
-    out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     saved = 0

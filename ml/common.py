@@ -10,6 +10,7 @@ places or not at all.
 from __future__ import annotations
 
 import math
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -53,20 +54,32 @@ def fetch_frame(t: datetime, cache_dir: Path) -> Path | None:
     """Downloads (or reuses) the archive composite for time [t].
 
     Returns None on 404 — archive gaps happen and callers should skip the
-    whole sample rather than train against a hole.
+    whole sample rather than train against a hole. Transient network
+    failures are retried with backoff and also degrade to None (skipped
+    sample) rather than killing a multi-hour build; a systematic outage
+    shows up as a run of "archive gap" skips in the log.
     """
     cache_dir.mkdir(parents=True, exist_ok=True)
     path = cache_dir / f"n0q_{t:%Y%m%d%H%M}.png"
     if path.exists():
         return path
-    resp = requests.get(ARCHIVE_URL.format(t=t), timeout=120)
-    if resp.status_code == 404:
-        return None
-    resp.raise_for_status()
-    tmp = path.with_suffix(".part")
-    tmp.write_bytes(resp.content)
-    tmp.rename(path)
-    return path
+    for backoff in (5, 15, 45, 120, None):
+        try:
+            resp = requests.get(ARCHIVE_URL.format(t=t), timeout=120)
+            if resp.status_code == 404:
+                return None
+            resp.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            if backoff is None:
+                print(f"giving up on {path.name}: {e}")
+                return None
+            time.sleep(backoff)
+            continue
+        tmp = path.with_suffix(".part")
+        tmp.write_bytes(resp.content)
+        tmp.rename(path)
+        return path
+    return None
 
 
 def extract_patch(
