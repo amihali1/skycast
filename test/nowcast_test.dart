@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -102,6 +103,47 @@ void main() {
         reason: 'echo should still be mostly opaque at +10 min');
     expect(opaqueFraction(at60, 210, 210, 250, 250), 0,
         reason: 'decaying echo should have faded below half opacity by +60');
+  });
+
+  test('unpredictable small-scale noise fades while large echo persists', () {
+    Uint8List speckledFrame(int seed) {
+      final image = img.Image(width: 512, height: 512, numChannels: 4);
+      // Static soft-edged disk on the left: predictable, large-scale.
+      for (var y = 176; y < 336; y++) {
+        for (var x = 48; x < 208; x++) {
+          final d = math.sqrt(math.pow(x - 128, 2) + math.pow(y - 256, 2));
+          if (d >= 80) continue;
+          final a = d < 50 ? 255 : (255 * (80 - d) / 30).round();
+          if (a < 40) continue;
+          image.setPixelRgba(x, y, 0, 200, 0, a);
+        }
+      }
+      // Fresh random speckles on the right every frame: unpredictable,
+      // small-scale echo that should decorrelate out of the forecast.
+      final rand = math.Random(seed);
+      for (var i = 0; i < 300; i++) {
+        final x0 = 320 + rand.nextInt(155);
+        final y0 = 16 + rand.nextInt(475);
+        img.fillRect(image,
+            x1: x0, y1: y0, x2: x0 + 2, y2: y0 + 2,
+            color: img.ColorRgba8(0, 200, 0, 255));
+      }
+      return img.encodePng(image);
+    }
+
+    final frames4 = [for (var s = 1; s <= 4; s++) speckledFrame(s)];
+    final at60 = predictAt(frames4, 60);
+
+    expect(opaqueFraction(at60, 90, 218, 166, 294), greaterThan(0.6),
+        reason: 'large predictable echo should survive the hour');
+
+    final latest = img.decodePng(frames4.last)!;
+    final speckleBefore = opaqueFraction(latest, 320, 16, 480, 494);
+    final speckleAfter = opaqueFraction(at60, 320, 16, 480, 494);
+    expect(speckleBefore, greaterThan(0.02),
+        reason: 'sanity: the latest frame does contain speckles');
+    expect(speckleAfter, lessThan(speckleBefore * 0.3),
+        reason: 'unpredictable speckle noise should mostly fade out');
   });
 
   test('empty frames produce empty predictions without errors', () {

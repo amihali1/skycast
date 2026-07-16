@@ -14,8 +14,17 @@ import 'package:image/image.dart' as img;
 ///  - growth/decay: per-block intensity trend applied as an alpha fade or
 ///    build with lead time, so dying showers die in the forecast too.
 ///
-/// Still no physics — this is Lagrangian extrapolation, useful to roughly
-/// an hour. It cannot predict new storm formation.
+/// v3 (S-PROG style): the latest field is split into spatial-scale bands and
+/// each band's temporal autocorrelation is measured across the
+/// motion-compensated history. Band contributions are faded as phi^lead, so
+/// unpredictable small-scale cells drop out of the forecast quickly while
+/// organized large-scale precipitation persists. Unlike real S-PROG the
+/// filtered field is not rendered directly (it looks blurry); it is applied
+/// as a per-pixel intensity ratio on top of the sharp advected frame.
+///
+/// Still no physics — Lagrangian extrapolation with statistical scale
+/// filtering, useful to roughly an hour. It cannot predict new storm
+/// formation.
 class NowcastService {
   NowcastService({http.Client? client}) : _client = client ?? http.Client();
 
@@ -254,6 +263,72 @@ List<Uint8List> extrapolateFrames(List<Uint8List> framePngs) {
   _dilate(growth, growthValid, blocks);
   _smooth(growth, blocks);
 
+  // Scale-dependent predictability (S-PROG style): split the intensity
+  // field into spatial-scale bands and measure, per band, how quickly it
+  // decorrelates across the motion-compensated observed frames. At each
+  // lead time every band is damped by phi^steps, so small unpredictable
+  // cells fade out of the forecast while broad organized shields persist.
+  Float32List toFloat(Uint8List u) {
+    final f = Float32List(u.length);
+    for (var i = 0; i < u.length; i++) {
+      f[i] = u[i].toDouble();
+    }
+    return f;
+  }
+
+  // Advects an observed frame forward one baseline step with the final
+  // velocity field, so consecutive frames compare in a common (Lagrangian)
+  // frame; without this, motion itself reads as decorrelation.
+  Float32List warpOneStep(Uint8List frame) {
+    final out = Float32List(matchSize * matchSize);
+    for (var y = 0; y < matchSize; y++) {
+      for (var x = 0; x < matchSize; x++) {
+        final sx =
+            (x - _bilinear(vx, x.toDouble(), y.toDouble(), matchSize)).round();
+        final sy =
+            (y - _bilinear(vy, x.toDouble(), y.toDouble(), matchSize)).round();
+        if (sx < 0 || sx >= matchSize || sy < 0 || sy >= matchSize) continue;
+        out[y * matchSize + x] = frame[sy * matchSize + sx].toDouble();
+      }
+    }
+    return out;
+  }
+
+  // Only the latest pair (t-1 → t-0) is used for the correlations: the
+  // correction pass above tuned the velocity field to map exactly that
+  // transition, so its warp alignment is trustworthy. Warping older pairs
+  // with the same single field misaligns them whenever the motion is
+  // accelerating, and misalignment reads as false decorrelation that fades
+  // healthy echoes (same Eulerian-trap class of bug as growth/velocity
+  // trends).
+  final latestF = toFloat(intensities[n - 1]);
+  final phi = List<double>.of(_defaultPhi);
+  final aligned = warpOneStep(intensities[n - 2]);
+  final mask = Uint8List(matchSize * matchSize);
+  var maskCount = 0;
+  for (var i = 0; i < mask.length; i++) {
+    if (aligned[i] > 0 || latestF[i] > 0) {
+      mask[i] = 1;
+      maskCount++;
+    }
+  }
+  // Under ~800 echo pixels the statistics are unstable; keep the defaults.
+  if (maskCount >= 800) {
+    final cascadeOld = _cascade(aligned, matchSize);
+    final cascadeNew = _cascade(latestF, matchSize);
+    for (var k = 0; k < _levelCount; k++) {
+      final r = _maskedCorrelation(cascadeOld[k], cascadeNew[k], mask);
+      if (!r.isNaN) phi[k] = r.clamp(0.05, 0.999);
+    }
+  }
+  // A finer scale can never be more persistent than a coarser one; noisy
+  // correlations occasionally say otherwise, so lower the finer level
+  // (never inflate the coarser one).
+  for (var k = _levelCount - 2; k >= 0; k--) {
+    phi[k] = math.min(phi[k], phi[k + 1]);
+  }
+  final cascadeNow = _cascade(latestF, matchSize);
+
   // Advect the latest frame along curved trajectories for each lead time.
   final latest = decoded[n - 1].convert(numChannels: 4);
   final src = latest.getBytes(order: img.ChannelOrder.rgba);
@@ -264,6 +339,32 @@ List<Uint8List> extrapolateFrames(List<Uint8List> framePngs) {
     final steps = lead / NowcastService._baselineMinutes;
     final substeps = math.min(steps.ceil(), 3);
     final dt = steps / substeps;
+
+    // Per-pixel predictability ratio for this lead: the scale-filtered
+    // field over the observed one. Where small-scale detail dominates the
+    // filtered value collapses and the ratio fades the echo; where a broad
+    // shield dominates it stays near 1.
+    final decay = [
+      for (var k = 0; k < _levelCount; k++) math.pow(phi[k], steps).toDouble()
+    ];
+    final scaleFade = Float32List(matchSize * matchSize);
+    for (var i = 0; i < scaleFade.length; i++) {
+      final observed = latestF[i];
+      if (observed < 4) {
+        // Too faint for a stable ratio. Echo that exists at full
+        // resolution but barely registers here is by definition
+        // finest-scale detail, so give it the finest band's persistence —
+        // a flat 1.0 would let sub-block echoes sail through the filter.
+        scaleFade[i] = math.max(0.15, decay[0]);
+        continue;
+      }
+      var filtered = 0.0;
+      for (var k = 0; k < _levelCount; k++) {
+        filtered += cascadeNow[k][i] * decay[k];
+      }
+      scaleFade[i] = ((filtered + 2) / (observed + 2)).clamp(0.15, 1.1);
+    }
+
     final out = Uint8List(size * size * 4);
 
     for (var y = 0; y < size; y++) {
@@ -288,10 +389,15 @@ List<Uint8List> extrapolateFrames(List<Uint8List> framePngs) {
         final alpha = src[si + 3];
         if (alpha == 0) continue;
 
-        // Growth rate travels with the parcel: sample at the source, not
-        // the destination, so a decaying cell keeps decaying as it moves.
+        // Growth rate and predictability travel with the parcel: sample at
+        // the source, not the destination, so a decaying cell keeps
+        // decaying as it moves.
         final g = _bilinear(growth, px, py, matchSize);
-        final fade = math.pow(g, steps).toDouble().clamp(0.2, 1.5);
+        final mx = px.round().clamp(0, matchSize - 1);
+        final my = py.round().clamp(0, matchSize - 1);
+        final fade = (math.pow(g, steps).toDouble().clamp(0.2, 1.5) *
+                scaleFade[my * matchSize + mx])
+            .clamp(0.05, 1.5);
         final di = (y * size + x) * 4;
         out[di] = src[si];
         out[di + 1] = src[si + 1];
@@ -432,6 +538,119 @@ Uint8List _intensity(img.Image frame, int size) {
         .clamp(1, 255);
   }
   return out;
+}
+
+/// Gaussian sigmas (match-resolution px) separating the cascade's scale
+/// bands. The field splits into [_levelCount] components: finest bandpass
+/// first, low-pass residual last. At 256 px over a 700 km domain these cut
+/// structure at wavelengths of very roughly 10 / 20 / 40 / 80 km.
+const _cascadeSigmas = [1.5, 3.0, 6.0, 12.0];
+const _levelCount = 5; // _cascadeSigmas bandpass levels + low-pass residual
+
+/// Fallback per-level lag-1 autocorrelations (finest first) for scenes with
+/// too little echo to measure them. Climatology-flavored: small scales live
+/// tens of minutes, synoptic envelopes hours.
+const _defaultPhi = [0.55, 0.75, 0.90, 0.97, 0.995];
+
+/// Splits a field into bandpass levels (finest first) plus a low-pass
+/// residual (last) — a difference-of-Gaussians approximation of the S-PROG
+/// FFT cascade.
+List<Float32List> _cascade(Float32List field, int size) {
+  final levels = <Float32List>[];
+  var prev = field;
+  for (final sigma in _cascadeSigmas) {
+    final blurred = _gaussianBlur(field, size, sigma);
+    final level = Float32List(size * size);
+    for (var i = 0; i < size * size; i++) {
+      level[i] = prev[i] - blurred[i];
+    }
+    levels.add(level);
+    prev = blurred;
+  }
+  levels.add(prev);
+  return levels;
+}
+
+/// Approximate Gaussian blur of a size*size field: three box passes per
+/// axis (O(n) per pass via running sums), edges replicated.
+Float32List _gaussianBlur(Float32List src, int size, double sigma) {
+  final a = Float32List.fromList(src);
+  final b = Float32List(size * size);
+  for (final w in _boxesForGauss(sigma, 3)) {
+    final r = (w - 1) ~/ 2;
+    _boxBlurH(a, b, size, r);
+    _boxBlurV(b, a, size, r);
+  }
+  return a;
+}
+
+/// Box widths whose triple application approximates a Gaussian of [sigma].
+List<int> _boxesForGauss(double sigma, int n) {
+  final wIdeal = math.sqrt(12 * sigma * sigma / n + 1);
+  var wl = wIdeal.floor();
+  if (wl.isEven) wl--;
+  final wu = wl + 2;
+  final mIdeal =
+      (12 * sigma * sigma - n * wl * wl - 4 * n * wl - 3 * n) / (-4 * wl - 4);
+  final m = mIdeal.round();
+  return [for (var i = 0; i < n; i++) i < m ? wl : wu];
+}
+
+void _boxBlurH(Float32List src, Float32List dst, int size, int r) {
+  final norm = 1.0 / (2 * r + 1);
+  for (var y = 0; y < size; y++) {
+    final row = y * size;
+    var sum = 0.0;
+    for (var x = -r; x <= r; x++) {
+      sum += src[row + x.clamp(0, size - 1)];
+    }
+    for (var x = 0; x < size; x++) {
+      dst[row + x] = sum * norm;
+      sum += src[row + (x + r + 1).clamp(0, size - 1)] -
+          src[row + (x - r).clamp(0, size - 1)];
+    }
+  }
+}
+
+void _boxBlurV(Float32List src, Float32List dst, int size, int r) {
+  final norm = 1.0 / (2 * r + 1);
+  for (var x = 0; x < size; x++) {
+    var sum = 0.0;
+    for (var y = -r; y <= r; y++) {
+      sum += src[x + size * y.clamp(0, size - 1)];
+    }
+    for (var y = 0; y < size; y++) {
+      dst[y * size + x] = sum * norm;
+      sum += src[x + size * (y + r + 1).clamp(0, size - 1)] -
+          src[x + size * (y - r).clamp(0, size - 1)];
+    }
+  }
+}
+
+/// Pearson correlation of [a] and [b] over pixels where [mask] is nonzero.
+/// NaN when the masked sample is degenerate.
+double _maskedCorrelation(Float32List a, Float32List b, Uint8List mask) {
+  var count = 0;
+  var sumA = 0.0, sumB = 0.0;
+  for (var i = 0; i < mask.length; i++) {
+    if (mask[i] == 0) continue;
+    count++;
+    sumA += a[i];
+    sumB += b[i];
+  }
+  if (count < 2) return double.nan;
+  final meanA = sumA / count, meanB = sumB / count;
+  var cov = 0.0, varA = 0.0, varB = 0.0;
+  for (var i = 0; i < mask.length; i++) {
+    if (mask[i] == 0) continue;
+    final da = a[i] - meanA, db = b[i] - meanB;
+    cov += da * db;
+    varA += da * da;
+    varB += db * db;
+  }
+  final denom = math.sqrt(varA * varB);
+  if (denom < 1e-9) return double.nan;
+  return cov / denom;
 }
 
 typedef _Field = List<List<(double, double)?>>;
