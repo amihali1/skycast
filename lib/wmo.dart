@@ -1,8 +1,24 @@
 import 'package:flutter/material.dart';
 
+import 'widgets/drizzle_icon.dart';
+
 /// WMO weather interpretation codes (WW) used by Open-Meteo,
 /// mapped to a human label and an icon.
 class Wmo {
+  /// Icon widget for [code]. Most codes map to a stock Material icon;
+  /// drizzle gets a custom glyph (no stock icon distinguishes drizzle
+  /// from rain showers).
+  static Widget iconWidget(
+    int code, {
+    required bool isDay,
+    required Color color,
+    required double size,
+  }) =>
+      switch (code) {
+        51 || 53 || 55 => DrizzleIcon(size: size, color: color),
+        _ => Icon(icon(code, isDay: isDay), color: color, size: size),
+      };
+
   static String label(int code) => switch (code) {
         0 => 'Clear sky',
         1 => 'Mainly clear',

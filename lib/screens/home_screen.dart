@@ -256,8 +256,9 @@ class _CurrentPanel extends StatelessWidget {
     return Column(
       children: [
         const SizedBox(height: 24),
-        Icon(
-          Wmo.icon(current.weatherCode, isDay: current.isDay),
+        Wmo.iconWidget(
+          current.weatherCode,
+          isDay: current.isDay,
           color: Colors.white,
           size: 72,
         ),
@@ -392,8 +393,10 @@ class _HourlyStrip extends StatelessWidget {
                 Text(i == 0 ? 'Now' : _hourLabel(h.time),
                     style: const TextStyle(color: Colors.white70, fontSize: 12)),
                 const SizedBox(height: 8),
-                Icon(Wmo.icon(h.weatherCode, isDay: h.time.hour >= 6 && h.time.hour < 20),
-                    color: Colors.white, size: 24),
+                Wmo.iconWidget(h.weatherCode,
+                    isDay: h.time.hour >= 6 && h.time.hour < 20,
+                    color: Colors.white,
+                    size: 24),
                 const SizedBox(height: 8),
                 Text(temp(h.temperatureC),
                     style: const TextStyle(color: Colors.white, fontSize: 15)),
@@ -440,8 +443,8 @@ class _DailyList extends StatelessWidget {
                       style: const TextStyle(color: Colors.white, fontSize: 15),
                     ),
                   ),
-                  Icon(Wmo.icon(d.weatherCode, isDay: true),
-                      color: Colors.white, size: 22),
+                  Wmo.iconWidget(d.weatherCode,
+                      isDay: true, color: Colors.white, size: 22),
                   const SizedBox(width: 12),
                   SizedBox(
                     width: 40,
