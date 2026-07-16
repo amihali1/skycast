@@ -32,8 +32,12 @@ class Wmo {
         2 => Icons.wb_cloudy,
         3 => Icons.cloud,
         45 || 48 => Icons.foggy,
-        51 || 53 || 55 || 56 || 57 => Icons.grain,
-        61 || 63 || 65 || 66 || 67 || 80 || 81 || 82 => Icons.water_drop,
+        // Icons.grain (an 8-dot grid) read as snowfall; umbrella says
+        // "light rain" without colliding with the rain or snow glyphs.
+        51 || 53 || 55 => Icons.umbrella,
+        // Freezing drizzle/rain is an ice hazard, not ordinary rain.
+        56 || 57 || 66 || 67 => Icons.severe_cold,
+        61 || 63 || 65 || 80 || 81 || 82 => Icons.water_drop,
         71 || 73 || 75 || 77 || 85 || 86 => Icons.ac_unit,
         95 || 96 || 99 => Icons.thunderstorm,
         _ => Icons.help_outline,

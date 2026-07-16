@@ -1,9 +1,5 @@
 # Backlog
 
-- [ ] **Drizzle icon looks like snow.** `Icons.grain` (an 8-dot grid) is used
-  for WMO codes 51/53/55/56/57 (drizzle + freezing drizzle) in
-  `lib/wmo.dart:35`, and reads as snowfall next to `Icons.ac_unit` (real
-  snow, line 37). Investigate a clearer glyph — e.g. `Icons.water_drop` with
-  reduced emphasis, `Icons.rainy_light` (if available in the bundled
-  Material set), or a custom drizzle icon. Freezing drizzle (56/57) may
-  deserve a distinct icon from plain drizzle while at it.
+- [x] **Drizzle icon looks like snow.** (fixed 2026-07-16) `Icons.grain`
+  replaced: drizzle (51/53/55) → `Icons.umbrella`; freezing drizzle/rain
+  (56/57/66/67) → `Icons.severe_cold` as a distinct ice-hazard glyph.
