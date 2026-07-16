@@ -3,6 +3,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 
+import '../models/air_quality.dart';
 import '../models/forecast.dart';
 import '../services/open_meteo.dart';
 import '../wmo.dart';
@@ -28,6 +29,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Place _place = _defaultPlace;
   Forecast? _forecast;
+  AirQuality? _airQuality;
   String? _error;
   bool _useFahrenheit = true;
   bool _locating = false;
@@ -52,10 +54,19 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _load() async {
     setState(() => _error = null);
+    // Air quality is a bonus card: fetched in parallel, and a failure only
+    // hides the card rather than breaking the whole screen.
+    final airQualityFuture =
+        _service.fetchAirQuality(_place).then<AirQuality?>((a) => a,
+            onError: (_) => null);
     try {
       final forecast = await _service.fetchForecast(_place);
+      final airQuality = await airQualityFuture;
       if (!mounted) return;
-      setState(() => _forecast = forecast);
+      setState(() {
+        _forecast = forecast;
+        _airQuality = airQuality;
+      });
     } catch (e) {
       if (!mounted) return;
       setState(() => _error = e.toString());
@@ -231,6 +242,10 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 24),
           _HourlyStrip(hours: upcomingHours, temp: _temp),
           const SizedBox(height: 24),
+          if (_airQuality != null) ...[
+            _AirQualityCard(airQuality: _airQuality!),
+            const SizedBox(height: 24),
+          ],
           _DailyList(days: forecast.daily, temp: _temp),
           const SizedBox(height: 24),
           const Center(
@@ -467,6 +482,64 @@ class _DailyList extends StatelessWidget {
                 ],
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AirQualityCard extends StatelessWidget {
+  const _AirQualityCard({required this.airQuality});
+
+  final AirQuality airQuality;
+
+  /// EPA AQI category colors.
+  Color get _color => switch (airQuality.usAqi) {
+        <= 50 => const Color(0xFF63C664),
+        <= 100 => const Color(0xFFF5D442),
+        <= 150 => const Color(0xFFF08C33),
+        <= 200 => const Color(0xFFE9524A),
+        <= 300 => const Color(0xFF9D5FB8),
+        _ => const Color(0xFFA34356),
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final aq = airQuality;
+    return _GlassCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Air quality',
+              style: TextStyle(color: Colors.white70, fontSize: 13)),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Container(
+                width: 12,
+                height: 12,
+                decoration:
+                    BoxDecoration(color: _color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 10),
+              Text('${aq.usAqi}',
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 28,
+                      fontWeight: FontWeight.w600)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(aq.category,
+                    style: const TextStyle(color: Colors.white, fontSize: 15)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'US AQI  ·  PM2.5 ${aq.pm25.round()}  ·  '
+            'PM10 ${aq.pm10.round()}  ·  O₃ ${aq.ozone.round()} μg/m³',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
         ],
       ),
     );

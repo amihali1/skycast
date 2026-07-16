@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../models/air_quality.dart';
 import '../models/forecast.dart';
 
 /// Client for the free, no-key Open-Meteo APIs.
@@ -12,6 +13,7 @@ class OpenMeteoService {
 
   static const _forecastHost = 'api.open-meteo.com';
   static const _geocodingHost = 'geocoding-api.open-meteo.com';
+  static const _airQualityHost = 'air-quality-api.open-meteo.com';
 
   Future<List<Place>> searchPlaces(String query) async {
     if (query.trim().length < 2) return const [];
@@ -44,6 +46,16 @@ class OpenMeteoService {
       'forecast_days': '8',
     });
     return Forecast.fromJson(await _get(uri));
+  }
+
+  Future<AirQuality> fetchAirQuality(Place place) async {
+    final uri = Uri.https(_airQualityHost, '/v1/air-quality', {
+      'latitude': place.latitude.toString(),
+      'longitude': place.longitude.toString(),
+      'current': 'us_aqi,pm2_5,pm10,ozone',
+      'timezone': 'auto',
+    });
+    return AirQuality.fromJson(await _get(uri));
   }
 
   Future<Map<String, dynamic>> _get(Uri uri) async {
