@@ -44,9 +44,11 @@ MIN_PRECIP_FRACTION = 0.01
 
 def build_time(t0: datetime, args, rng: random.Random) -> int:
     # Resume support: a crashed run can be relaunched without recomputing
-    # sample times that already produced patches.
+    # sample times that already produced patches. --no-resume disables the
+    # skip for mining extra patches out of already-built days (use a fresh
+    # --seed so the new draws don't overwrite the old files).
     out_dir = Path(args.out)
-    if list(out_dir.glob(f"s_{t0:%Y%m%d%H%M}_*.npz")):
+    if args.resume and list(out_dir.glob(f"s_{t0:%Y%m%d%H%M}_*.npz")):
         print(f"{t0:%Y-%m-%d %H:%M}: already built, skipped")
         return 0
 
@@ -119,6 +121,7 @@ def main() -> None:
     parser.add_argument("--out", default="data/samples")
     parser.add_argument("--cache", default="data/raw")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--no-resume", dest="resume", action="store_false")
     args = parser.parse_args()
 
     rng = random.Random(args.seed)
