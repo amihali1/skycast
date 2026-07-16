@@ -42,6 +42,12 @@ KM_PER_DEG = 111.32
 PATCH_KM = 568.0
 KM_PER_PX = PATCH_KM / MATCH_SIZE
 
+# Palette index of 20 dBZ (index = 2 * (dBZ + 32)): the floor for "real
+# precipitation" when gating patches. The luminance the model consumes is
+# NOT monotonic in dBZ (reds are darker than pale blues), so gates must use
+# the palette index, never the luminance.
+PRECIP_INDEX = 104
+
 
 def fetch_frame(t: datetime, cache_dir: Path) -> Path | None:
     """Downloads (or reuses) the archive composite for time [t].
@@ -63,9 +69,12 @@ def fetch_frame(t: datetime, cache_dir: Path) -> Path | None:
     return path
 
 
-def extract_patch(image: Image.Image, lat: float, lon: float) -> np.ndarray | None:
-    """Cuts a PATCH_KM x PATCH_KM patch centred on (lat, lon) and returns it
-    as MATCH_SIZE x MATCH_SIZE uint8 intensity.
+def extract_patch(
+    image: Image.Image, lat: float, lon: float
+) -> tuple[np.ndarray, float] | None:
+    """Cuts a PATCH_KM x PATCH_KM patch centred on (lat, lon) and returns
+    (MATCH_SIZE x MATCH_SIZE uint8 intensity, fraction of native pixels at
+    or above PRECIP_INDEX).
 
     The archive grid is plate-carree, so a square-in-km patch spans more
     columns than rows by 1/cos(lat). Returns None if the patch leaves the
@@ -89,11 +98,12 @@ def extract_patch(image: Image.Image, lat: float, lon: float) -> np.ndarray | No
     pal = np.array(image.getpalette(), dtype=np.int32).reshape(-1, 3)
     lum = np.clip((pal[:, 0] + 2 * pal[:, 1] + pal[:, 2]) >> 2, 1, 255)
     lum[0] = 0
-    native = lum[np.asarray(crop)].astype(np.uint8)
+    idx = np.asarray(crop)
+    native = lum[idx].astype(np.uint8)
     resized = Image.fromarray(native, "L").resize(
         (MATCH_SIZE, MATCH_SIZE), Image.BILINEAR
     )
-    return np.asarray(resized)
+    return np.asarray(resized), float((idx >= PRECIP_INDEX).mean())
 
 
 def _motion_field(prev: np.ndarray, nxt: np.ndarray, search: int) -> np.ndarray:

@@ -37,7 +37,9 @@ Image.MAX_IMAGE_PIXELS = None  # the CONUS composite trips the default limit
 LAT_RANGE = (27.0, 47.0)
 LON_RANGE = (-119.0, -72.0)
 
-MIN_ECHO_FRACTION = 0.02  # patch must have >=2% echo pixels at T0
+# Patch must contain real precipitation at T0, not just clear-air clutter:
+# >=1% of native pixels at or above 20 dBZ (see common.PRECIP_INDEX).
+MIN_PRECIP_FRACTION = 0.01
 
 
 def build_time(t0: datetime, args, rng: random.Random) -> int:
@@ -61,17 +63,18 @@ def build_time(t0: datetime, args, rng: random.Random) -> int:
         lat = rng.uniform(*LAT_RANGE)
         lon = rng.uniform(*LON_RANGE)
 
-        latest = common.extract_patch(images[3], lat, lon)
-        if latest is None:
+        extracted = common.extract_patch(images[3], lat, lon)
+        if extracted is None:
             continue
-        if (latest > 0).mean() < MIN_ECHO_FRACTION:
+        latest, precip_frac = extracted
+        if precip_frac < MIN_PRECIP_FRACTION:
             continue
 
-        history = [common.extract_patch(im, lat, lon) for im in images[:3]]
-        futures = [common.extract_patch(im, lat, lon) for im in images[4:]]
-        if any(p is None for p in history + futures):
+        others = [common.extract_patch(im, lat, lon) for im in images[:3] + images[4:]]
+        if any(p is None for p in others):
             continue
-        history.append(latest)
+        history = [p[0] for p in others[:3]] + [latest]
+        futures = [p[0] for p in others[3:]]
 
         vx, vy = common.estimate_motion(history)
 
