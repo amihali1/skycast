@@ -146,6 +146,12 @@ def main() -> None:
         callbacks=[
             tf.keras.callbacks.ReduceLROnPlateau(patience=3, factor=0.5),
             tf.keras.callbacks.EarlyStopping(patience=6, restore_best_weights=True),
+            # Best-so-far survives a killed run; a completed fit overwrites
+            # this with the same weights via model.save below.
+            tf.keras.callbacks.ModelCheckpoint(
+                "models/nowcast_residual.keras",
+                save_best_only=True,
+            ),
         ],
     )
     print(f"persistence baseline (val): {baseline:.5f}")
