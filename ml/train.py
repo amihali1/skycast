@@ -122,6 +122,12 @@ def main() -> None:
     parser.add_argument("--batch", type=int, default=8)
     parser.add_argument("--val-fraction", type=float, default=0.15)
     parser.add_argument("--export", default="models/nowcast_residual.tflite")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue from the models/nowcast_residual.keras checkpoint "
+        "instead of fresh weights (optimizer state restarts)",
+    )
     args = parser.parse_args()
 
     paths = sorted(Path(args.data).glob("*.npz"))
@@ -136,7 +142,14 @@ def main() -> None:
     baseline = persistence_baseline(val_paths)
     print(f"persistence baseline (val): {baseline:.5f}")
 
-    model = build_model()
+    checkpoint = Path("models/nowcast_residual.keras")
+    if args.resume and checkpoint.exists():
+        model = tf.keras.models.load_model(
+            checkpoint, custom_objects={"weighted_mae": weighted_mae}
+        )
+        print(f"resumed from {checkpoint}")
+    else:
+        model = build_model()
     model.compile(optimizer=tf.keras.optimizers.Adam(1e-3), loss=weighted_mae)
     model.summary(line_length=90)
     model.fit(
