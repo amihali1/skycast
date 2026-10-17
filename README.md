@@ -2,6 +2,8 @@
 
 An ad-free weather app. One Flutter codebase, two targets: Android and web.
 
+**Live web version: https://amihali1.github.io/skycast/**
+
 Built because every mainstream weather app is now an ad delivery vehicle with a
 forecast attached. Skycast has no ads, no trackers, no accounts, and no API keys.
 
