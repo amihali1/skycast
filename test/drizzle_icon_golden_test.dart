@@ -1,3 +1,8 @@
+// Golden images are rendered on Windows; other platforms differ by a few pixels, so CI skips the
+// 'golden' tag. Regenerate with: flutter test --update-goldens test/drizzle_icon_golden_test.dart
+@Tags(['golden'])
+library;
+
 import 'dart:io';
 
 import 'package:flutter/material.dart';

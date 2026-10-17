@@ -1,3 +1,4 @@
 tags:
   live:
     skip: "Live network test — run with: flutter test --run-skipped --tags live"
+  golden:
